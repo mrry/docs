@@ -37,16 +37,16 @@ that are already built into TensorFlow:
 
 Each of these implementations comprises three related classes:
 
-* A `tensorflow::DatasetOpKernel` subclass (e.g. `TextLineDatasetOp`), which
-  tells TensorFlow how to construct a dataset object from the inputs to and
-  attrs of an op, in its `MakeDataset()` method.
+* A `tensorflow::data::DatasetOpKernel` subclass (e.g. `TextLineDatasetOp`),
+  which tells TensorFlow how to construct a dataset object from the inputs to
+  and attrs of an op, in its `MakeDataset()` method.
 
-* A `tensorflow::GraphDatasetBase` subclass (e.g. `TextLineDatasetOp::Dataset`),
-  which represents the *immutable* definition of the dataset itself, and tells
-  TensorFlow how to construct an iterator object over that dataset, in its
-  `MakeIteratorInternal()` method.
+* A `tensorflow::data::DatasetBase` subclass (e.g.
+  `TextLineDatasetOp::Dataset`), which represents the *immutable* definition of
+  the dataset itself, and tells TensorFlow how to construct an iterator object
+  over that dataset, in its `MakeIteratorInternal()` method.
 
-* A `tensorflow::DatasetIterator<Dataset>` subclass (e.g.
+* A `tensorflow::data::DatasetIterator<Dataset>` subclass (e.g.
   `TextLineDatasetOp::Dataset::Iterator`), which represents the *mutable* state
   of an iterator over a particular dataset, and tells TensorFlow how to get the
   next element from the iterator, in its `GetNextInternal()` method.
@@ -58,9 +58,10 @@ how to actually read records from the file and represent them as one or more
 To create a new reader dataset called (for example) `MyReaderDataset`, you will
 need to:
 
-1. In C++, define subclasses of `tensorflow::DatasetOpKernel`,
-   `tensorflow::GraphDatasetBase`, and `tensorflow::DatasetIterator<Dataset>`
-   that implement the reading logic.
+1. In C++, define subclasses of `tensorflow::data::DatasetOpKernel`,
+   `tensorflow::data::DatasetBase`, and
+   `tensorflow::data::DatasetIterator<Dataset>` that implement the reading
+   logic.
 2. In C++, register a new reader op and kernel with the name
    `"MyReaderDataset"`.
 3. In Python, define a subclass of `tf.data.Dataset` called `MyReaderDataset`.
@@ -83,7 +84,7 @@ using ::tensorflow::DT_STRING;
 using ::tensorflow::PartialTensorShape;
 using ::tensorflow::Status;
 
-class MyReaderDatasetOp : public tensorflow::DatasetOpKernel {
+class MyReaderDatasetOp : public tensorflow::data::DatasetOpKernel {
  public:
 
   MyReaderDatasetOp(tensorflow::OpKernelConstruction* ctx)
@@ -93,7 +94,7 @@ class MyReaderDatasetOp : public tensorflow::DatasetOpKernel {
   }
 
   void MakeDataset(tensorflow::OpKernelContext* ctx,
-                   tensorflow::DatasetBase** output) override {
+                   tensorflow::data::DatasetBase** output) override {
     // Parse and validate any input tensors 0that define the dataset using
     // `ctx->input()` or the utility function
     // `ParseScalarArgument<T>(ctx, &arg)`.
@@ -104,13 +105,14 @@ class MyReaderDatasetOp : public tensorflow::DatasetOpKernel {
   }
 
  private:
-  class Dataset : public tensorflow::GraphDatasetBase {
+  class Dataset : public tensorflow::data::DatasetBase {
    public:
-    Dataset(tensorflow::OpKernelContext* ctx) : GraphDatasetBase(ctx) {}
+    Dataset(tensorflow::OpKernelContext* ctx)
+        : DatasetBase(tensorflow::data::DatasetContext(ctx)) {}
 
-    std::unique_ptr<tensorflow::IteratorBase> MakeIteratorInternal(
+    std::unique_ptr<tensorflow::data::IteratorBase> MakeIteratorInternal(
         const string& prefix) const override {
-      return std::unique_ptr<tensorflow::IteratorBase>(new Iterator(
+      return std::unique_ptr<tensorflow::data::IteratorBase>(new Iterator(
           {this, tensorflow::strings::StrCat(prefix, "::MyReader")}));
     }
 
@@ -146,7 +148,7 @@ class MyReaderDatasetOp : public tensorflow::DatasetOpKernel {
     }
 
    private:
-    class Iterator : public tensorflow::DatasetIterator<Dataset> {
+    class Iterator : public tensorflow::data::DatasetIterator<Dataset> {
      public:
       explicit Iterator(const Params& params)
           : DatasetIterator<Dataset>(params), i_(0) {}
@@ -163,7 +165,7 @@ class MyReaderDatasetOp : public tensorflow::DatasetOpKernel {
       //    return `Status::OK()`.
       // 3. If an error occurs, return an error status using one of the helper
       //    functions from "tensorflow/core/lib/core/errors.h".
-      Status GetNextInternal(tensorflow::IteratorContext* ctx,
+      Status GetNextInternal(tensorflow::data::IteratorContext* ctx,
                              std::vector<tensorflow::Tensor>* out_tensors,
                              bool* end_of_sequence) override {
         // NOTE: `GetNextInternal()` may be called concurrently, so it is
@@ -188,13 +190,15 @@ class MyReaderDatasetOp : public tensorflow::DatasetOpKernel {
       //
       // Implement these two methods if you want to be able to save and restore
       // instances of this iterator.
-      Status SaveInternal(tensorflow::IteratorStateWriter* writer) override {
+      Status SaveInternal(
+          tensorflow::data::IteratorStateWriter* writer) override {
         tensorflow::mutex_lock l(mu_);
         TF_RETURN_IF_ERROR(writer->WriteScalar(full_name("i"), i_));
         return Status::OK();
       }
-      Status RestoreInternal(tensorflow::IteratorContext* ctx,
-                             tensorflow::IteratorStateReader* reader) override {
+      Status RestoreInternal(
+          tensorflow::data::IteratorContext* ctx,
+          tensorflow::data::IteratorStateReader* reader) override {
         tensorflow::mutex_lock l(mu_);
         TF_RETURN_IF_ERROR(reader->ReadScalar(full_name("i"), &i_));
         return Status::OK();
